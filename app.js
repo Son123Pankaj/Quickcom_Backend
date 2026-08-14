@@ -6,6 +6,11 @@ var path = require('path');
 var cors = require('cors');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
+var fs = require('fs');
+var { Kafka } = require('kafkajs');
+
+// Database Connection Import
+// var pool = require('./pool');
 
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
@@ -22,10 +27,6 @@ var adoffersRouter = require('./routes/adoffers');
 var userInterfaceRouter = require('./routes/userinterface');
 var smsapiRouter = require('./routes/smsapi');
 
-
-
-
-
 var app = express();
 
 // view engine setup
@@ -34,7 +35,7 @@ app.set('view engine', 'ejs');
 
 app.use(logger('dev'));
 app.use(express.json());
-app.use(cors())
+app.use(cors());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -48,24 +49,84 @@ app.use('/product', productRouter);
 app.use('/productdetail', productdetailRouter);
 app.use('/productpictures', productpicturesRouter);
 app.use('/mainbanner', mainbannerRouter);
-app.use('/bankoffer',bankofferRouter);
+app.use('/bankoffer', bankofferRouter);
 app.use('/adminlogin', adminloginRouter);
 app.use('/adoffers', adoffersRouter);
-app.use('/userinterface',userInterfaceRouter);
-app.use('/smsapi',smsapiRouter);
+app.use('/userinterface', userInterfaceRouter);
+app.use('/smsapi', smsapiRouter);
 
+// ==========================================
+// 🚀 KAFKA TO MYSQL INTEGRATION
+// ==========================================
+const caCertPath = path.join(__dirname, 'ca.pem');
 
+if (fs.existsSync(caCertPath)) {
+  const kafka = new Kafka({
+    clientId: 'quickcom-backend',
+    brokers: [process.env.KAFKA_BROKER || 'quickcomdata-bus-v1-pankaj-fc18.d.aivencloud.com:24694'],
+    ssl: {
+      rejectUnauthorized: true,
+      ca: [fs.readFileSync(caCertPath, 'utf-8')],
+    },
+ sasl: {
+  mechanism: 'scram-sha-256',
+  username: process.env.KAFKA_USER || 'avnadmin',
+  password: process.env.KAFKA_PASSWORD,
+},
+  });
 
+  const consumer = kafka.consumer({ groupId: 'quickcom-group' });
 
+  const startKafka = async () => {
+    try {
+      await consumer.connect();
+      console.log('✅ Connected to Aiven Kafka Service!');
 
+      await consumer.subscribe({ topic: 'user_activity_data_gen', fromBeginning: true });
 
+      await consumer.run({
+        eachMessage: async ({ topic, partition, message }) => {
+          try {
+            const rawString = message.value.toString();
+            const data = JSON.parse(rawString);
 
+            console.log('📥 Live Stream Data Received:', data);
 
+            // MySQL Table में Data Insert करें
+            const query = `
+              INSERT INTO user_activities (action, action_id, country_code, raw_data) 
+              VALUES (?, ?, ?, ?)
+            `;
+            const values = [
+              data.action || null, 
+              data.action_id || null, 
+              data.country_code || null, 
+              rawString
+            ];
 
+            pool.query(query, values, (dbErr, result) => {
+              if (dbErr) {
+                console.error('❌ Database Insert Error:', dbErr.message);
+              } else {
+                console.log('💾 Data successfully saved to MySQL! ID:', result.insertId);
+              }
+            });
 
+          } catch (e) {
+            console.error('JSON Parse Error:', e.message);
+          }
+        },
+      });
+    } catch (err) {
+      console.error('❌ Kafka Connection Error:', err.message);
+    }
+  };
 
-
-
+  startKafka();
+} else {
+  console.warn('⚠️ ca.pem फ़ाइल नहीं मिली! Kafka चालू नहीं हुआ।');
+}
+// ==========================================
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
@@ -74,11 +135,9 @@ app.use(function(req, res, next) {
 
 // error handler
 app.use(function(err, req, res, next) {
-  // set locals, only providing error in development
   res.locals.message = err.message;
   res.locals.error = req.app.get('env') === 'development' ? err : {};
 
-  // render the error page
   res.status(err.status || 500);
   res.render('error');
 });

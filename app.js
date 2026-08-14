@@ -10,7 +10,7 @@ var fs = require('fs');
 var { Kafka } = require('kafkajs');
 
 // Database Connection Import
-// var pool = require('./pool');
+var pool = require('./routes/pool');
 
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
@@ -60,19 +60,27 @@ app.use('/smsapi', smsapiRouter);
 // ==========================================
 const caCertPath = path.join(__dirname, 'ca.pem');
 
+// SSL CA Certificate (फाइल से या ENV वैरिएबल से)
+let caCert = null;
 if (fs.existsSync(caCertPath)) {
+  caCert = fs.readFileSync(caCertPath, 'utf-8');
+} else if (process.env.KAFKA_CA_CERT) {
+  caCert = process.env.KAFKA_CA_CERT;
+}
+
+if (caCert) {
   const kafka = new Kafka({
     clientId: 'quickcom-backend',
     brokers: [process.env.KAFKA_BROKER || 'quickcomdata-bus-v1-pankaj-fc18.d.aivencloud.com:24694'],
     ssl: {
       rejectUnauthorized: true,
-      ca: [fs.readFileSync(caCertPath, 'utf-8')],
+      ca: [caCert],
     },
- sasl: {
-  mechanism: 'scram-sha-256',
-  username: process.env.KAFKA_USER || 'avnadmin',
-  password: process.env.KAFKA_PASSWORD,
-},
+    sasl: {
+      mechanism: 'scram-sha-256',
+      username: process.env.KAFKA_USER || 'avnadmin',
+      password: process.env.KAFKA_PASSWORD,
+    },
   });
 
   const consumer = kafka.consumer({ groupId: 'quickcom-group' });
@@ -124,7 +132,7 @@ if (fs.existsSync(caCertPath)) {
 
   startKafka();
 } else {
-  console.warn('⚠️ ca.pem फ़ाइल नहीं मिली! Kafka चालू नहीं हुआ।');
+  console.warn('⚠️ SSL Certificate (ca.pem या KAFKA_CA_CERT) नहीं मिला! Kafka चालू नहीं हुआ।');
 }
 // ==========================================
 

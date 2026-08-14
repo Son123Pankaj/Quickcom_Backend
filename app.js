@@ -69,68 +69,73 @@ if (fs.existsSync(caCertPath)) {
 }
 
 if (caCert) {
-  const kafka = new Kafka({
-    clientId: 'quickcom-backend',
-    brokers: [process.env.KAFKA_BROKER || 'quickcomdata-bus-v1-pankaj-fc18.d.aivencloud.com:24694'],
-    ssl: {
-      rejectUnauthorized: true,
-      ca: [caCert],
-    },
-    sasl: {
-      mechanism: 'scram-sha-256',
-      username: process.env.KAFKA_USER || 'avnadmin',
-      password: process.env.KAFKA_PASSWORD,
-    },
-  });
+  // Do not keep credentials in source. Require env vars for Kafka auth.
+  if (!process.env.KAFKA_USER || !process.env.KAFKA_PASSWORD) {
+    console.error('Missing Kafka credentials: set KAFKA_USER and KAFKA_PASSWORD as environment variables. Kafka will not start. Do NOT commit secrets to GitHub.');
+  } else {
+    const kafka = new Kafka({
+      clientId: 'quickcom-backend',
+      brokers: [process.env.KAFKA_BROKER || 'quickcomdata-bus-v1-pankaj-fc18.d.aivencloud.com:24694'],
+      ssl: {
+        rejectUnauthorized: true,
+        ca: [caCert],
+      },
+      sasl: {
+        mechanism: 'scram-sha-256',
+        username: process.env.KAFKA_USER,
+        password: process.env.KAFKA_PASSWORD,
+      }
+    });
 
-  const consumer = kafka.consumer({ groupId: 'quickcom-group' });
+    const consumer = kafka.consumer({ groupId: 'quickcom-group' });
 
-  const startKafka = async () => {
-    try {
-      await consumer.connect();
-      console.log('✅ Connected to Aiven Kafka Service!');
+    const startKafka = async () => {
+      try {
+        await consumer.connect();
+        console.log('✅ Connected to Aiven Kafka Service!');
 
-      await consumer.subscribe({ topic: 'user_activity_data_gen', fromBeginning: true });
+        await consumer.subscribe({ topic: 'user_activity_data_gen', fromBeginning: true });
 
-      await consumer.run({
-        eachMessage: async ({ topic, partition, message }) => {
-          try {
-            const rawString = message.value.toString();
-            const data = JSON.parse(rawString);
+        await consumer.run({
+          eachMessage: async ({ topic, partition, message }) => {
+            try {
+              const rawString = message.value.toString();
+              const data = JSON.parse(rawString);
 
-            console.log('📥 Live Stream Data Received:', data);
+              console.log('📥 Live Stream Data Received:', data);
 
-            // MySQL Table में Data Insert करें
-            const query = `
-              INSERT INTO user_activities (action, action_id, country_code, raw_data) 
-              VALUES (?, ?, ?, ?)
-            `;
-            const values = [
-              data.action || null, 
-              data.action_id || null, 
-              data.country_code || null, 
-              rawString
-            ];
+              // MySQL Table में Data Insert करें
+              const query = `
+                INSERT INTO user_activities (action, action_id, country_code, raw_data) 
+                VALUES (?, ?, ?, ?)
+              `;
+              const values = [
+                data.action || null, 
+                data.action_id || null, 
+                data.country_code || null, 
+                rawString
+              ];
 
-            pool.query(query, values, (dbErr, result) => {
-              if (dbErr) {
-                console.error('❌ Database Insert Error:', dbErr.message);
-              } else {
-                console.log('💾 Data successfully saved to MySQL! ID:', result.insertId);
-              }
-            });
+              pool.query(query, values, (dbErr, result) => {
+                if (dbErr) {
+                  console.error('❌ Database Insert Error:', dbErr.message);
+                } else {
+                  console.log('💾 Data successfully saved to MySQL! ID:', result.insertId);
+                }
+              });
 
-          } catch (e) {
-            console.error('JSON Parse Error:', e.message);
-          }
-        },
-      });
-    } catch (err) {
-      console.error('❌ Kafka Connection Error:', err.message);
-    }
-  };
+            } catch (e) {
+              console.error('JSON Parse Error:', e.message);
+            }
+          },
+        });
+      } catch (err) {
+        console.error('❌ Kafka Connection Error:', err && err.message ? err.message : err);
+      }
+    };
 
-  startKafka();
+    startKafka();
+  }
 } else {
   console.warn('⚠️ SSL Certificate (ca.pem या KAFKA_CA_CERT) नहीं मिला! Kafka चालू नहीं हुआ।');
 }

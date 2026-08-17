@@ -13,7 +13,7 @@ router.post(
   
     try {
       pool.query(
-        "insert into productpictures(categoryid, subcategoryid, brandid, productid, productdetailid, filenames,created_at,updated_at,user_admin)values(?,?,?,?,?,?,?,?,?)",
+        "insert into productpictures(categoryid, subcategoryid, brandid, productid, productdetailid, filenames,created_at,updated_at,user_admin)values($1,$2,$3,$4,$5,$6,$7,$8,$9)",
         [
           req.body.categoryid,
           req.body.subcategoryid,

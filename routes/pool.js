@@ -1,37 +1,73 @@
-const mysql = require('mysql');
+const { Pool } = require('pg');
+require('dotenv').config();
 
-// In production we require explicit DB env vars to avoid silent misconfiguration
-if (process.env.NODE_ENV === 'production') {
-  const requiredEnv = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
-  const missing = requiredEnv.filter(k => !process.env[k] || process.env[k].toString().trim() === '');
-  if (missing.length) {
-    console.warn('Missing required DB env vars:', missing.join(', '), '-- set them in your environment. The app will attempt to start but DB connections may fail.');
-  }
-  if ((process.env.DB_HOST || '').includes('your_cloud_mysql_host')) {
-    console.warn('DB_HOST is set to placeholder "your_cloud_mysql_host". Please set a real host in DB_HOST. Continuing startup to allow deployment; DB connections will fail until fixed.');
-  }
+const connectionString = process.env.DATABASE_URL || process.env.DB_URL;
+
+if (!connectionString) {
+  console.warn('No database URL found. Set DATABASE_URL or DB_URL in your .env file.');
 }
 
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT || 3306),
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '1234',
-  database: process.env.DB_NAME || 'quickcom',
-  multipleStatements: true,
-  connectionLimit: 10,
-  waitForConnections: true,
-  queueLimit: 0
+const pool = new Pool({
+  connectionString,
+  ssl: connectionString ? { rejectUnauthorized: false } : false,
+  max: 10,
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000
 });
 
-pool.getConnection((err, connection) => {
-  if (err) {
-    console.error(`MySQL connection failed to host="${process.env.DB_HOST || 'unknown'}":`, err && err.code ? `${err.code} - ${err.message}` : (err && err.message) || err);
-    return;
+const originalQuery = pool.query.bind(pool);
+
+function convertMysqlPlaceholders(sql, values) {
+  if (!sql) {
+    return { sql: sql || '', values: values || [] };
   }
 
-  console.log('MySQL connected successfully.');
-  connection.release();
+  const finalValues = Array.isArray(values) ? values : [];
+
+  if (finalValues.length === 0) {
+    return { sql, values: finalValues };
+  }
+
+  let convertedSql = '';
+  let index = 0;
+
+  for (let i = 0; i < sql.length; i += 1) {
+    if (sql[i] === '?') {
+      index += 1;
+      convertedSql += `$${index}`;
+    } else {
+      convertedSql += sql[i];
+    }
+  }
+
+  return { sql: convertedSql, values: finalValues };
+}
+
+pool.query = function queryCompat(sql, params, callback) {
+  if (typeof sql !== 'string') {
+    return originalQuery(sql, params, callback);
+  }
+
+  if (typeof params === 'undefined' && typeof callback === 'undefined') {
+    return originalQuery(sql);
+  }
+
+  if (typeof params === 'function') {
+    callback = params;
+    params = undefined;
+  }
+
+  if (typeof callback === 'function') {
+    const normalized = convertMysqlPlaceholders(sql, Array.isArray(params) ? params : []);
+    return originalQuery(normalized.sql, normalized.values, callback);
+  }
+
+  const normalized = convertMysqlPlaceholders(sql, Array.isArray(params) ? params : []);
+  return originalQuery(normalized.sql, normalized.values);
+};
+
+pool.on('error', (err) => {
+  console.error('Unexpected PostgreSQL error:', err);
 });
 
 module.exports = pool;

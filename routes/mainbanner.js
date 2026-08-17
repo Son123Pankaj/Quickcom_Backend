@@ -5,7 +5,7 @@ var pool = require('./pool')
 /* GET home page. */
 router.post('/mainbanner_submit',upload.single('filenames'), function(req, res, next) {
   try{
-       pool.query("insert into mainbanner(status,filenames,created_at,updated_at,user_admin) values(?,?,?,?,?)",[ req.body.status, req.file.filename, req.body.created_at, req.body.updated_at, req.body.user_admin],function(error,result){
+       pool.query("insert into mainbanner(status,filenames,created_at,updated_at,user_admin) values($1,$2,$3,$4,$5)",[ req.body.status, req.file.filename, req.body.created_at, req.body.updated_at, req.body.user_admin],function(error,result){
               if(error)
                {console.log("vvvvv",error)
                  res.status(200).json({message:'Database error please contact with backend team...',status:false})

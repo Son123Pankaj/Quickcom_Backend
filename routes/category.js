@@ -119,4 +119,25 @@ router.post('/delete_category', function(req, res, next) {
   }
 });
 
+
+router.get("/test-db", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT NOW()");
+
+    res.json({
+      success: true,
+      message: "Neon PostgreSQL connected successfully",
+      time: result.rows[0]
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: "Database connection failed",
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;

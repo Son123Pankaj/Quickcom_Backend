@@ -54,7 +54,6 @@ app.use('/adminlogin', adminloginRouter);
 app.use('/adoffers', adoffersRouter);
 app.use('/userinterface', userInterfaceRouter);
 app.use('/smsapi', smsapiRouter);
-
 // ==========================================
 // 🚀 KAFKA TO MYSQL INTEGRATION
 // ==========================================
@@ -71,7 +70,7 @@ if (fs.existsSync(caCertPath)) {
 if (caCert) {
   // Do not keep credentials in source. Require env vars for Kafka auth.
   if (!process.env.KAFKA_USER || !process.env.KAFKA_PASSWORD) {
-    console.error('Missing Kafka credentials: set KAFKA_USER and KAFKA_PASSWORD as environment variables. Kafka will not start. Do NOT commit secrets to GitHub.');
+    console.warn('Kafka is disabled because KAFKA_USER and KAFKA_PASSWORD are not set.');
   } else {
     const kafka = new Kafka({
       clientId: 'quickcom-backend',
@@ -106,13 +105,13 @@ if (caCert) {
 
               // MySQL Table में Data Insert करें
               const query = `
-                INSERT INTO user_activities (action, action_id, country_code, raw_data) 
-                VALUES (?, ?, ?, ?)
+                INSERT INTO user_activities (action, action_id, country_code, raw_data)
+                VALUES ($1, $2, $3, $4)
               `;
               const values = [
-                data.action || null, 
-                data.action_id || null, 
-                data.country_code || null, 
+                data.action || null,
+                data.action_id || null,
+                data.country_code || null,
                 rawString
               ];
 
@@ -120,7 +119,7 @@ if (caCert) {
                 if (dbErr) {
                   console.error('❌ Database Insert Error:', dbErr.message);
                 } else {
-                  console.log('💾 Data successfully saved to MySQL! ID:', result.insertId);
+                  console.log('💾 Data successfully saved to PostgreSQL! Rows:', result && result.rowCount);
                 }
               });
 
